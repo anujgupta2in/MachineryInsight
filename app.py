@@ -772,7 +772,11 @@ def display_single_vessel_analysis(df, analyzer, visualizer, vessel_name):
                 if col == 'Machinery':
                     styles.append('background-color: #e8f5e8; color: #2e7d32; font-weight: bold')
                 elif col == 'Component':
-                    styles.append('background-color: #fff8e1; color: #f57f17')
+                    # Highlight components with count > 1
+                    if 'Count' in detailed_hierarchy.columns and row['Count'] > 1:
+                        styles.append('background-color: #ffcc80; color: #e65100; font-weight: bold')
+                    else:
+                        styles.append('background-color: #fff8e1; color: #f57f17')
                 else:
                     styles.append('background-color: #f1f8e9' if row.name % 2 == 0 else 'background-color: #f8fdf6')
             return styles

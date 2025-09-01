@@ -172,6 +172,14 @@ class StyledExporter:
             'align': 'left'
         })
         
+        # Format for components with count > 1 (highlighted)
+        component_highlighted_format = workbook.add_format({
+            'bg_color': '#ffcc80',
+            'font_color': '#e65100',
+            'bold': True,
+            'align': 'left'
+        })
+        
         header_format = workbook.add_format({
             'bold': True,
             'bg_color': '#81c784',
@@ -204,7 +212,11 @@ class StyledExporter:
                 if col_name == 'Machinery':
                     worksheet.write(row_idx, col_idx, value, machinery_format)
                 elif col_name == 'Component':
-                    worksheet.write(row_idx, col_idx, value, component_format)
+                    # Check if count > 1 for conditional formatting
+                    if 'Count' in df.columns and row['Count'] > 1:
+                        worksheet.write(row_idx, col_idx, value, component_highlighted_format)
+                    else:
+                        worksheet.write(row_idx, col_idx, value, component_format)
                 elif col_name == 'Count':
                     worksheet.write(row_idx, col_idx, value, number_format)
                 else:

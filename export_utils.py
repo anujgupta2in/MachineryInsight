@@ -19,8 +19,8 @@ class StyledExporter:
             'hierarchy_alt_2': '#f8fdf6'
         }
     
-    def export_machinery_list_excel(self, df: pd.DataFrame) -> bytes:
-        """Export machinery list with green/yellow formatting"""
+    def export_machinery_list_excel(self, df: pd.DataFrame, duplicates: set = None) -> bytes:
+        """Export machinery list with green/yellow formatting and pink highlighting for duplicates"""
         output = io.BytesIO()
         workbook = xlsxwriter.Workbook(output, {'in_memory': True})
         worksheet = workbook.add_worksheet('Machinery List')
@@ -36,6 +36,14 @@ class StyledExporter:
         component_format = workbook.add_format({
             'bg_color': self.colors['component_bg'],
             'font_color': self.colors['component_text'],
+            'align': 'left'
+        })
+        
+        # Pink format for duplicate components
+        component_duplicate_format = workbook.add_format({
+            'bg_color': '#ffc0cb',
+            'font_color': '#d81b60',
+            'bold': True,
             'align': 'left'
         })
         
@@ -70,7 +78,11 @@ class StyledExporter:
                 if col_name == 'Machinery':
                     worksheet.write(row_idx, col_idx, value, machinery_format)
                 elif col_name == 'Component':
-                    worksheet.write(row_idx, col_idx, value, component_format)
+                    # Check if this is a duplicate component
+                    if duplicates and 'Machinery' in df.columns and (row['Machinery'], row['Component']) in duplicates:
+                        worksheet.write(row_idx, col_idx, value, component_duplicate_format)
+                    else:
+                        worksheet.write(row_idx, col_idx, value, component_format)
                 elif col_name == 'Count':
                     worksheet.write(row_idx, col_idx, value, number_format)
                 else:
@@ -89,8 +101,8 @@ class StyledExporter:
         output.seek(0)
         return output.getvalue()
     
-    def export_critical_machinery_excel(self, df: pd.DataFrame) -> bytes:
-        """Export critical machinery with warning colors"""
+    def export_critical_machinery_excel(self, df: pd.DataFrame, duplicates: set = None) -> bytes:
+        """Export critical machinery with warning colors and pink highlighting for duplicates"""
         output = io.BytesIO()
         workbook = xlsxwriter.Workbook(output, {'in_memory': True})
         worksheet = workbook.add_worksheet('Critical Machinery')
@@ -106,6 +118,14 @@ class StyledExporter:
         component_format = workbook.add_format({
             'bg_color': self.colors['component_bg'],
             'font_color': self.colors['component_text'],
+            'align': 'left'
+        })
+        
+        # Pink format for duplicate components
+        component_duplicate_format = workbook.add_format({
+            'bg_color': '#ffc0cb',
+            'font_color': '#d81b60',
+            'bold': True,
             'align': 'left'
         })
         
@@ -135,7 +155,11 @@ class StyledExporter:
                 if col_name == 'Machinery':
                     worksheet.write(row_idx, col_idx, value, machinery_format)
                 elif col_name == 'Component':
-                    worksheet.write(row_idx, col_idx, value, component_format)
+                    # Check if this is a duplicate component
+                    if duplicates and 'Machinery' in df.columns and (row['Machinery'], row['Component']) in duplicates:
+                        worksheet.write(row_idx, col_idx, value, component_duplicate_format)
+                    else:
+                        worksheet.write(row_idx, col_idx, value, component_format)
                 else:
                     critical_format = critical_format_1 if row_idx % 2 == 0 else critical_format_2
                     worksheet.write(row_idx, col_idx, value, critical_format)
@@ -152,8 +176,8 @@ class StyledExporter:
         output.seek(0)
         return output.getvalue()
     
-    def export_hierarchy_excel(self, df: pd.DataFrame) -> bytes:
-        """Export hierarchy with green theme"""
+    def export_hierarchy_excel(self, df: pd.DataFrame, duplicates: set = None) -> bytes:
+        """Export hierarchy with green theme and pink highlighting for duplicates"""
         output = io.BytesIO()
         workbook = xlsxwriter.Workbook(output, {'in_memory': True})
         worksheet = workbook.add_worksheet('Machinery Hierarchy')
@@ -169,6 +193,14 @@ class StyledExporter:
         component_format = workbook.add_format({
             'bg_color': self.colors['component_bg'],
             'font_color': self.colors['component_text'],
+            'align': 'left'
+        })
+        
+        # Pink format for duplicate components (priority over count > 1)
+        component_duplicate_format = workbook.add_format({
+            'bg_color': '#ffc0cb',
+            'font_color': '#d81b60',
+            'bold': True,
             'align': 'left'
         })
         
@@ -212,8 +244,11 @@ class StyledExporter:
                 if col_name == 'Machinery':
                     worksheet.write(row_idx, col_idx, value, machinery_format)
                 elif col_name == 'Component':
+                    # Check if this is a duplicate component (priority)
+                    if duplicates and 'Machinery' in df.columns and (row['Machinery'], row['Component']) in duplicates:
+                        worksheet.write(row_idx, col_idx, value, component_duplicate_format)
                     # Check if count > 1 for conditional formatting
-                    if 'Count' in df.columns and row['Count'] > 1:
+                    elif 'Count' in df.columns and row['Count'] > 1:
                         worksheet.write(row_idx, col_idx, value, component_highlighted_format)
                     else:
                         worksheet.write(row_idx, col_idx, value, component_format)

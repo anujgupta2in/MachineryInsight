@@ -105,6 +105,28 @@ def extract_vessel_name(filename):
     except Exception:
         return "Vessel"
 
+def identify_duplicate_components(df, machinery_col='Machinery', component_col='Component'):
+    """
+    Identify duplicate components within the same machinery.
+    Returns a set of (machinery, component) tuples that are duplicates.
+    """
+    duplicates = set()
+    
+    if machinery_col not in df.columns or component_col not in df.columns:
+        return duplicates
+    
+    # Group by machinery and component, count occurrences
+    grouped = df.groupby([machinery_col, component_col]).size().reset_index(name='count')
+    
+    # Find entries where count > 1 (duplicates)
+    duplicate_rows = grouped[grouped['count'] > 1]
+    
+    # Create a set of (machinery, component) tuples for quick lookup
+    for _, row in duplicate_rows.iterrows():
+        duplicates.add((row[machinery_col], row[component_col]))
+    
+    return duplicates
+
 def display_vessel_comparison():
     """Display comparison view for multiple vessels"""
     st.markdown("### 📊 Multi-Vessel Comparison Dashboard")
@@ -631,12 +653,16 @@ def display_single_vessel_analysis(df, analyzer, visualizer, vessel_name):
         # Get unique machinery details using filtered data
         machinery_details = analyzer.get_unique_machinery_with_details(filtered_df)
         
+        # Identify duplicate components within same machinery
+        duplicates = identify_duplicate_components(machinery_details, 'Machinery', 'Component')
+        
         col1, col2 = st.columns([2, 1])
         
         with col1:
             st.subheader("Machinery List with Maker & Model")
             
             if len(machinery_details) > 0:
+                
                 # Apply conditional formatting with consistent colors
                 def highlight_machinery_component(row):
                     styles = []
@@ -644,7 +670,11 @@ def display_single_vessel_analysis(df, analyzer, visualizer, vessel_name):
                         if col == 'Machinery':
                             styles.append('background-color: #e8f5e8; color: #2e7d32; font-weight: bold')
                         elif col == 'Component':
-                            styles.append('background-color: #fff8e1; color: #f57f17')
+                            # Check if this is a duplicate component within the same machinery
+                            if (row['Machinery'], row['Component']) in duplicates:
+                                styles.append('background-color: #ffc0cb; color: #d81b60; font-weight: bold')
+                            else:
+                                styles.append('background-color: #fff8e1; color: #f57f17')
                         else:
                             styles.append('background-color: #f8f9fa' if row.name % 2 == 0 else 'background-color: #ffffff')
                     return styles
@@ -679,7 +709,7 @@ def display_single_vessel_analysis(df, analyzer, visualizer, vessel_name):
                 
                 with col_export2:
                     # Excel export with formatting
-                    excel_data = exporter.export_machinery_list_excel(machinery_details)
+                    excel_data = exporter.export_machinery_list_excel(machinery_details, duplicates)
                     st.download_button(
                         label="📊 Download Styled Excel",
                         data=excel_data,
@@ -708,6 +738,9 @@ def display_single_vessel_analysis(df, analyzer, visualizer, vessel_name):
         st.subheader("Critical Machinery Details")
         critical_details = analyzer.get_critical_machinery_details(filtered_df)
         
+        # Identify duplicate components within same machinery
+        duplicates = identify_duplicate_components(critical_details, 'Machinery', 'Component')
+        
         # Apply conditional formatting for critical machinery with consistent colors
         def highlight_critical_machinery_component(row):
             styles = []
@@ -715,7 +748,11 @@ def display_single_vessel_analysis(df, analyzer, visualizer, vessel_name):
                 if col == 'Machinery':
                     styles.append('background-color: #e8f5e8; color: #2e7d32; font-weight: bold')
                 elif col == 'Component':
-                    styles.append('background-color: #fff8e1; color: #f57f17')
+                    # Check if this is a duplicate component within the same machinery
+                    if (row['Machinery'], row['Component']) in duplicates:
+                        styles.append('background-color: #ffc0cb; color: #d81b60; font-weight: bold')
+                    else:
+                        styles.append('background-color: #fff8e1; color: #f57f17')
                 else:
                     # Critical items get orange/red background for other columns
                     styles.append('background-color: #ffecb3' if row.name % 2 == 0 else 'background-color: #fff8e1')
@@ -746,7 +783,7 @@ def display_single_vessel_analysis(df, analyzer, visualizer, vessel_name):
         
         with col_crit2:
             # Excel export with formatting
-            excel_data = exporter.export_critical_machinery_excel(critical_details)
+            excel_data = exporter.export_critical_machinery_excel(critical_details, duplicates)
             st.download_button(
                 label="⚠️ Download Styled Excel",
                 data=excel_data,
@@ -765,6 +802,9 @@ def display_single_vessel_analysis(df, analyzer, visualizer, vessel_name):
         st.subheader("Detailed Hierarchy")
         detailed_hierarchy = analyzer.get_detailed_hierarchy(filtered_df)
         
+        # Identify duplicate components within same machinery
+        duplicates = identify_duplicate_components(detailed_hierarchy, 'Machinery', 'Component')
+        
         # Apply conditional formatting for hierarchy with consistent colors
         def highlight_hierarchy_machinery_component(row):
             styles = []
@@ -772,8 +812,11 @@ def display_single_vessel_analysis(df, analyzer, visualizer, vessel_name):
                 if col == 'Machinery':
                     styles.append('background-color: #e8f5e8; color: #2e7d32; font-weight: bold')
                 elif col == 'Component':
+                    # Check if this is a duplicate component within the same machinery (priority: pink for duplicates)
+                    if (row['Machinery'], row['Component']) in duplicates:
+                        styles.append('background-color: #ffc0cb; color: #d81b60; font-weight: bold')
                     # Highlight components with count > 1
-                    if 'Count' in detailed_hierarchy.columns and row['Count'] > 1:
+                    elif 'Count' in detailed_hierarchy.columns and row['Count'] > 1:
                         styles.append('background-color: #ffcc80; color: #e65100; font-weight: bold')
                     else:
                         styles.append('background-color: #fff8e1; color: #f57f17')
@@ -808,7 +851,7 @@ def display_single_vessel_analysis(df, analyzer, visualizer, vessel_name):
         
         with col_hier2:
             # Excel export with formatting
-            excel_data = exporter.export_hierarchy_excel(detailed_hierarchy)
+            excel_data = exporter.export_hierarchy_excel(detailed_hierarchy, duplicates)
             st.download_button(
                 label="🏗️ Download Styled Excel",
                 data=excel_data,

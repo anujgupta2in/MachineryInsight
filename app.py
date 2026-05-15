@@ -148,9 +148,163 @@ def display_vessel_comparison():
         })
     
     comparison_df = pd.DataFrame(comparison_data)
+    numeric_cols = ['Total Records', 'Unique Machinery', 'Critical Machinery',
+                    'Total Components', 'Unique Makers', 'Unique Models']
     
-    # Display comparison table
-    st.dataframe(comparison_df, use_container_width=True)
+    # Highlight cells where values differ across vessels
+    def highlight_differences(col):
+        if col.name == 'Vessel':
+            return [''] * len(col)
+        styles = []
+        vals = col.tolist()
+        all_same = len(set(vals)) == 1
+        for v in vals:
+            if all_same:
+                styles.append('background-color: #e8f5e9; color: #2e7d32')
+            else:
+                styles.append('background-color: #fff3e0; color: #e65100; font-weight: bold')
+        return styles
+    
+    styled_comparison = comparison_df.style.apply(highlight_differences)
+    st.dataframe(styled_comparison, use_container_width=True)
+    
+    # Show differences breakdown when there are exactly 2 vessels
+    vessel_list_for_diff = list(st.session_state.vessels_data.keys())
+    if len(vessel_list_for_diff) == 2:
+        v1_name, v2_name = vessel_list_for_diff[0], vessel_list_for_diff[1]
+        v1_row = comparison_df[comparison_df['Vessel'] == v1_name].iloc[0]
+        v2_row = comparison_df[comparison_df['Vessel'] == v2_name].iloc[0]
+        
+        # Check if any metric differs
+        has_diff = any(v1_row[c] != v2_row[c] for c in numeric_cols)
+        
+        if has_diff:
+            st.subheader("📋 Metric Differences Breakdown")
+            
+            # Show side-by-side diff for metrics that differ
+            diff_metrics = [c for c in numeric_cols if v1_row[c] != v2_row[c]]
+            
+            cols = st.columns(len(diff_metrics))
+            for idx, metric in enumerate(diff_metrics):
+                v1_val = int(v1_row[metric])
+                v2_val = int(v2_row[metric])
+                delta = v1_val - v2_val
+                with cols[idx]:
+                    st.markdown(f"**{metric}**")
+                    st.markdown(
+                        f"<div style='background:#fff3e0;padding:8px;border-radius:6px;text-align:center'>"
+                        f"<b>{v1_name}:</b> {v1_val}<br>"
+                        f"<b>{v2_name}:</b> {v2_val}<br>"
+                        f"<b>Difference:</b> "
+                        f"<span style='color:{'#c62828' if delta>0 else '#1b5e20'}'>"
+                        f"{'+'if delta>0 else ''}{delta}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+            
+            # Explain what causes Total Records / Unique Machinery differences
+            df1 = st.session_state.vessels_data[v1_name]['df'].copy()
+            df2 = st.session_state.vessels_data[v2_name]['df'].copy()
+            df1['Machinery'] = df1['Machinery'].astype(str).str.strip()
+            df2['Machinery'] = df2['Machinery'].astype(str).str.strip()
+            
+            # Per-machinery record counts
+            counts1 = df1.groupby('Machinery').size().reset_index(name=v1_name)
+            counts2 = df2.groupby('Machinery').size().reset_index(name=v2_name)
+            merged = pd.merge(counts1, counts2, on='Machinery', how='outer').fillna(0)
+            merged[v1_name] = merged[v1_name].astype(int)
+            merged[v2_name] = merged[v2_name].astype(int)
+            merged['Difference'] = merged[v1_name] - merged[v2_name]
+            
+            # Machinery only in one vessel (causes Unique Machinery difference)
+            only_in_v1 = merged[merged[v2_name] == 0][['Machinery', v1_name]].rename(columns={v1_name: 'Records'})
+            only_in_v2 = merged[merged[v1_name] == 0][['Machinery', v2_name]].rename(columns={v2_name: 'Records'})
+            
+            # Machinery present in both but with different record counts
+            in_both_diff = merged[(merged[v1_name] > 0) & (merged[v2_name] > 0) & (merged['Difference'] != 0)].sort_values('Difference', key=abs, ascending=False)
+            
+            if len(only_in_v1) > 0 or len(only_in_v2) > 0:
+                st.markdown("**🔎 Unique Machinery Difference — Machinery only in one vessel:**")
+                uc1, uc2 = st.columns(2)
+                with uc1:
+                    if len(only_in_v1) > 0:
+                        st.markdown(f"*Only in {v1_name}* ({len(only_in_v1)})")
+                        for _, r in only_in_v1.iterrows():
+                            st.markdown(f"&nbsp;&nbsp;➕ **{r['Machinery']}** — {r['Records']} records")
+                    else:
+                        st.markdown(f"*Only in {v1_name}:* None")
+                with uc2:
+                    if len(only_in_v2) > 0:
+                        st.markdown(f"*Only in {v2_name}* ({len(only_in_v2)})")
+                        for _, r in only_in_v2.iterrows():
+                            st.markdown(f"&nbsp;&nbsp;➕ **{r['Machinery']}** — {r['Records']} records")
+                    else:
+                        st.markdown(f"*Only in {v2_name}:* None")
+            
+            if len(in_both_diff) > 0:
+                st.markdown("**🔎 Total Records Difference — Same machinery, different component counts (expand each to see component details):**")
+                
+                # Prepare component-level data for both vessels
+                comp_col = 'Component Name' if 'Component Name' in df1.columns else None
+                
+                df1_comp = df1.copy()
+                df2_comp = df2.copy()
+                if comp_col:
+                    df1_comp[comp_col] = df1_comp[comp_col].astype(str).str.strip()
+                    df2_comp[comp_col] = df2_comp[comp_col].astype(str).str.strip()
+                
+                for _, mach_row in in_both_diff.iterrows():
+                    machinery = mach_row['Machinery']
+                    v1_count = int(mach_row[v1_name])
+                    v2_count = int(mach_row[v2_name])
+                    diff_val = int(mach_row['Difference'])
+                    diff_label = f"+{diff_val}" if diff_val > 0 else str(diff_val)
+                    diff_color = "#1565c0" if diff_val > 0 else "#c62828"
+                    
+                    with st.expander(f"🔧 {machinery}  —  {v1_name}: {v1_count}  |  {v2_name}: {v2_count}  |  Diff: {diff_label}"):
+                        if comp_col:
+                            # Get component lists for this machinery from each vessel
+                            comps1 = df1_comp[df1_comp['Machinery'] == machinery][comp_col].tolist()
+                            comps2 = df2_comp[df2_comp['Machinery'] == machinery][comp_col].tolist()
+                            
+                            set1 = set(comps1)
+                            set2 = set(comps2)
+                            
+                            only_in_v1_comps = sorted(set1 - set2)
+                            only_in_v2_comps = sorted(set2 - set1)
+                            in_both_comps = sorted(set1 & set2)
+                            
+                            # Check for count differences in shared components
+                            count_diff_comps = []
+                            for comp in in_both_comps:
+                                c1 = comps1.count(comp)
+                                c2 = comps2.count(comp)
+                                if c1 != c2:
+                                    count_diff_comps.append((comp, c1, c2))
+                            
+                            cc1, cc2 = st.columns(2)
+                            with cc1:
+                                st.markdown(f"**Only in {v1_name}** ({len(only_in_v1_comps)} components)")
+                                if only_in_v1_comps:
+                                    for c in only_in_v1_comps:
+                                        st.markdown(f"<span style='background:#e3f2fd;padding:2px 6px;border-radius:4px;color:#1565c0'>➕ {c}</span>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("_None_")
+                            with cc2:
+                                st.markdown(f"**Only in {v2_name}** ({len(only_in_v2_comps)} components)")
+                                if only_in_v2_comps:
+                                    for c in only_in_v2_comps:
+                                        st.markdown(f"<span style='background:#fce4ec;padding:2px 6px;border-radius:4px;color:#c62828'>➕ {c}</span>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("_None_")
+                            
+                            if count_diff_comps:
+                                st.markdown("**Components present in both but with different counts:**")
+                                count_diff_df = pd.DataFrame(count_diff_comps, columns=['Component', v1_name + ' Count', v2_name + ' Count'])
+                                count_diff_df['Difference'] = count_diff_df[v1_name + ' Count'] - count_diff_df[v2_name + ' Count']
+                                st.dataframe(count_diff_df, use_container_width=True)
+                        else:
+                            st.info("Component Name column not found in data.")
     
     # Detailed machinery comparison analysis
     st.header("🔍 Detailed Machinery Comparison Analysis")

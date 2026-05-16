@@ -294,6 +294,127 @@ class StyledExporter:
         output.seek(0)
         return output.getvalue()
     
+    def export_records_difference_excel(self, v1_name: str, v2_name: str,
+                                         only_in_v1: pd.DataFrame, only_in_v2: pd.DataFrame,
+                                         in_both_diff: pd.DataFrame,
+                                         df1_comp: pd.DataFrame, df2_comp: pd.DataFrame,
+                                         comp_col: str = 'Component Name') -> bytes:
+        """Export Total Records Difference analysis to Excel with multiple sheets"""
+        output = io.BytesIO()
+        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+
+        # --- Common formats ---
+        header_fmt = workbook.add_format({'bold': True, 'bg_color': '#455a64', 'font_color': '#ffffff', 'align': 'center', 'border': 1})
+        machinery_fmt = workbook.add_format({'bg_color': '#e8f5e8', 'font_color': '#2e7d32', 'bold': True, 'align': 'left'})
+        v1_only_fmt = workbook.add_format({'bg_color': '#e3f2fd', 'font_color': '#1565c0', 'align': 'left'})
+        v2_only_fmt = workbook.add_format({'bg_color': '#fce4ec', 'font_color': '#c62828', 'align': 'left'})
+        count_diff_fmt = workbook.add_format({'bg_color': '#fff8e1', 'font_color': '#e65100', 'align': 'left'})
+        pos_diff_fmt = workbook.add_format({'bg_color': '#e3f2fd', 'font_color': '#1565c0', 'bold': True, 'align': 'center'})
+        neg_diff_fmt = workbook.add_format({'bg_color': '#fce4ec', 'font_color': '#c62828', 'bold': True, 'align': 'center'})
+        normal_fmt = workbook.add_format({'align': 'left'})
+        number_fmt = workbook.add_format({'num_format': '#,##0', 'align': 'center'})
+        section_fmt = workbook.add_format({'bold': True, 'bg_color': '#90caf9', 'font_color': '#0d47a1', 'align': 'left', 'border': 1})
+
+        # =====================================================================
+        # Sheet 1: Summary — machinery-level diff table
+        # =====================================================================
+        ws_summary = workbook.add_worksheet('Summary')
+        summary_headers = ['Machinery', v1_name, v2_name, 'Difference']
+        for ci, h in enumerate(summary_headers):
+            ws_summary.write(0, ci, h, header_fmt)
+
+        for ri, (_, row) in enumerate(in_both_diff[['Machinery', v1_name, v2_name, 'Difference']].iterrows(), 1):
+            ws_summary.write(ri, 0, row['Machinery'], machinery_fmt)
+            ws_summary.write(ri, 1, int(row[v1_name]), number_fmt)
+            ws_summary.write(ri, 2, int(row[v2_name]), number_fmt)
+            diff_val = int(row['Difference'])
+            ws_summary.write(ri, 3, diff_val, pos_diff_fmt if diff_val > 0 else neg_diff_fmt)
+
+        ws_summary.set_column(0, 0, 45)
+        ws_summary.set_column(1, 3, 18)
+
+        # =====================================================================
+        # Sheet 2: Unique Machinery — machinery only in one vessel
+        # =====================================================================
+        ws_unique = workbook.add_worksheet('Unique Machinery')
+        ws_unique.write(0, 0, f'Only in {v1_name}', section_fmt)
+        ws_unique.write(0, 1, 'Records', header_fmt)
+        ri = 1
+        for _, row in only_in_v1.iterrows():
+            ws_unique.write(ri, 0, row['Machinery'], v1_only_fmt)
+            ws_unique.write(ri, 1, int(row['Records']), number_fmt)
+            ri += 1
+
+        ri += 1
+        ws_unique.write(ri, 0, f'Only in {v2_name}', section_fmt)
+        ws_unique.write(ri, 1, 'Records', header_fmt)
+        ri += 1
+        for _, row in only_in_v2.iterrows():
+            ws_unique.write(ri, 0, row['Machinery'], v2_only_fmt)
+            ws_unique.write(ri, 1, int(row['Records']), number_fmt)
+            ri += 1
+
+        ws_unique.set_column(0, 0, 45)
+        ws_unique.set_column(1, 1, 15)
+
+        # =====================================================================
+        # Sheet 3: Component Differences — full component breakdown
+        # =====================================================================
+        ws_comp = workbook.add_worksheet('Component Differences')
+        comp_headers = ['Machinery', 'Component Name', 'Status', f'{v1_name} Count', f'{v2_name} Count', 'Difference']
+        for ci, h in enumerate(comp_headers):
+            ws_comp.write(0, ci, h, header_fmt)
+
+        ri = 1
+        if comp_col and comp_col in df1_comp.columns and comp_col in df2_comp.columns:
+            for _, mach_row in in_both_diff.iterrows():
+                machinery = mach_row['Machinery']
+                comps1 = df1_comp[df1_comp['Machinery'] == machinery][comp_col].tolist()
+                comps2 = df2_comp[df2_comp['Machinery'] == machinery][comp_col].tolist()
+                set1, set2 = set(comps1), set(comps2)
+
+                # Only in V1
+                for comp in sorted(set1 - set2):
+                    ws_comp.write(ri, 0, machinery, machinery_fmt)
+                    ws_comp.write(ri, 1, comp, v1_only_fmt)
+                    ws_comp.write(ri, 2, f'Only in {v1_name}', v1_only_fmt)
+                    ws_comp.write(ri, 3, comps1.count(comp), number_fmt)
+                    ws_comp.write(ri, 4, 0, number_fmt)
+                    ws_comp.write(ri, 5, comps1.count(comp), pos_diff_fmt)
+                    ri += 1
+
+                # Only in V2
+                for comp in sorted(set2 - set1):
+                    ws_comp.write(ri, 0, machinery, machinery_fmt)
+                    ws_comp.write(ri, 1, comp, v2_only_fmt)
+                    ws_comp.write(ri, 2, f'Only in {v2_name}', v2_only_fmt)
+                    ws_comp.write(ri, 3, 0, number_fmt)
+                    ws_comp.write(ri, 4, comps2.count(comp), number_fmt)
+                    ws_comp.write(ri, 5, -comps2.count(comp), neg_diff_fmt)
+                    ri += 1
+
+                # Count differences in shared components
+                for comp in sorted(set1 & set2):
+                    c1, c2 = comps1.count(comp), comps2.count(comp)
+                    if c1 != c2:
+                        ws_comp.write(ri, 0, machinery, machinery_fmt)
+                        ws_comp.write(ri, 1, comp, count_diff_fmt)
+                        ws_comp.write(ri, 2, 'Count Difference', count_diff_fmt)
+                        ws_comp.write(ri, 3, c1, number_fmt)
+                        ws_comp.write(ri, 4, c2, number_fmt)
+                        diff_val = c1 - c2
+                        ws_comp.write(ri, 5, diff_val, pos_diff_fmt if diff_val > 0 else neg_diff_fmt)
+                        ri += 1
+
+        ws_comp.set_column(0, 0, 45)
+        ws_comp.set_column(1, 1, 40)
+        ws_comp.set_column(2, 2, 22)
+        ws_comp.set_column(3, 5, 16)
+
+        workbook.close()
+        output.seek(0)
+        return output.getvalue()
+
     def _format_worksheet(self, worksheet, df: pd.DataFrame, workbook, sheet_type: str):
         """Apply formatting to a worksheet based on type"""
         # Define common formats

@@ -305,6 +305,26 @@ def display_vessel_comparison():
                                 st.dataframe(count_diff_df, use_container_width=True)
                         else:
                             st.info("Component Name column not found in data.")
+                
+                # ---- Export button for Total Records Difference ----
+                st.markdown("---")
+                exporter = StyledExporter()
+                excel_diff = exporter.export_records_difference_excel(
+                    v1_name=v1_name,
+                    v2_name=v2_name,
+                    only_in_v1=only_in_v1,
+                    only_in_v2=only_in_v2,
+                    in_both_diff=in_both_diff,
+                    df1_comp=df1_comp if comp_col else df1,
+                    df2_comp=df2_comp if comp_col else df2,
+                    comp_col=comp_col if comp_col else 'Component Name'
+                )
+                st.download_button(
+                    label="📥 Download Records Difference Report (Excel)",
+                    data=excel_diff,
+                    file_name=f"{v1_name}_vs_{v2_name}_records_difference.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
     
     # Detailed machinery comparison analysis
     st.header("🔍 Detailed Machinery Comparison Analysis")
